@@ -1,11 +1,14 @@
 -- ====================================================================
--- НАСТРОЙКИ KEYAUTH (ТВОИ ДАННЫЕ)
+-- ЛОКАЛЬНАЯ СИСТЕМА КЛЮЧЕЙ (РЕДАКТИРУЙ ЗДЕСЬ)
 -- ====================================================================
-local KeyAuthApp = {
-    Name = "StuntRideScript",
-    OwnerId = "7crCQYeTdu",
-    Secret = "ef961ebc9e78ce17119a46d1aeacfb5fe000413fc444ae8290c2f9fcf58403d0",
-    Version = "1.0"
+-- Добавляй ключи в этот список. Формат: ["ключ"] = true,
+-- Чтобы удалить ключ — просто удали строку с ним или поставь false.
+local VALID_KEYS = {
+    ["STUNT-2024-AAA"] = true,
+    ["STUNT-2024-BBB"] = true,
+    ["STUNT-2024-CCC"] = true,
+    ["PREMIUM-KEY-001"] = true,
+    ["TEST-KEY-12345"]  = true,
 }
 
 -- ====================================================================
@@ -29,34 +32,17 @@ local currentGyro = nil
 local currentAttachment = nil
 local stuntConnection = nil
 
--- HWID для ПК
-local fakeHwid = "XenoPC_" .. tostring(localPlayer.UserId or 12345)
-
--- ====================================================================
--- ПАРСЕР ОТВЕТОВ KEYAUTH
--- ====================================================================
-local function customParseField(body, fieldName)
-    if not body or body == "" then return nil end
-    local pattern = '"' .. fieldName .. '"%s*:%s*"([^"]+)"'
-    local match = string.match(body, pattern)
-    if not match then
-        pattern = '"' .. fieldName .. '"%s*:%s*([%w]+)'
-        match = string.match(body, pattern)
-    end
-    return match
-end
-
 -- ====================================================================
 -- ФИЗИКА СТАНТА (WHEELIE)
 -- ====================================================================
 local function applyWheelie(seat)
     if not seat or not seat.Parent then return end
     local root = seat.Parent.PrimaryPart or seat
-    
+
     currentAttachment = Instance.new("Attachment")
     currentAttachment.Name = "StuntAttachment"
     currentAttachment.Parent = root
-    
+
     local angularVelocity = Instance.new("AngularVelocity")
     angularVelocity.Name = "WheelieForce"
     angularVelocity.Attachment0 = currentAttachment
@@ -64,7 +50,7 @@ local function applyWheelie(seat)
     angularVelocity.MaxTorque = _G.MaxForce
     angularVelocity.AngularVelocity = Vector3.new(2.5, 0, 0)
     angularVelocity.Parent = root
-    
+
     currentGyro = angularVelocity
 
     stuntConnection = RunService.Heartbeat:Connect(function()
@@ -74,7 +60,7 @@ local function applyWheelie(seat)
         local currentAngleDeg = math.deg(math.asin(look:Dot(up)))
         local angleError = _G.TargetAngle - currentAngleDeg
         local targetSpeed = math.clamp(angleError * 0.2, -4, 4)
-        
+
         if math.abs(angleError) < 1 then
             currentGyro.AngularVelocity = Vector3.new(0, 0, 0)
         else
@@ -112,7 +98,6 @@ local function LaunchUniversalVehicleScript()
         end
     end)
 
-    -- Приятное уведомление в чате
     pcall(function()
         game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", {
             Text = "[Premium] Активировано! Зажмите LeftShift в машине для станта.",
@@ -122,11 +107,6 @@ local function LaunchUniversalVehicleScript()
         })
     end)
 end
-
--- ====================================================================
--- МЕТОД ЗАПРОСА (XENO)
--- ====================================================================
-local requestFunc = (syn and syn.request) or (http and http.request) or http_request or request
 
 -- ====================================================================
 -- UI ДЛЯ ВВОДА КЛЮЧА
@@ -153,12 +133,12 @@ box.Parent = authSg
 local UICorner = Instance.new("UICorner", box)
 UICorner.CornerRadius = UDim.new(0, 6)
 
--- Логика верификации
+-- Логика проверки (полностью локальная, без интернета)
 box.FocusLost:Connect(function(enterPressed)
     if not enterPressed then return end
-    
+
     local enteredKey = string.gsub(box.Text, "[%s%c]+", "")
-    
+
     if enteredKey == "" then
         box.Text = ""
         box.PlaceholderText = "ПОЛЕ НЕ МОЖЕТ БЫТЬ ПУСТЫМ!"
@@ -166,91 +146,23 @@ box.FocusLost:Connect(function(enterPressed)
         return
     end
 
-    box.Text = "ПОДКЛЮЧЕНИЕ..."
+    box.Text = "ПРОВЕРКА КЛЮЧА..."
     box.BorderColor3 = Color3.fromRGB(186, 124, 255)
-    task.wait(0.05)
+    task.wait(0.3)
 
-    if not requestFunc then
-        box.Text = "ОШИБКА: XENO НЕ ПОДДЕРЖИВАЕТ ИНТЕРНЕТ"
+    if VALID_KEYS[enteredKey] == true then
+        box.Text = "УСПЕШНО!"
+        box.TextColor3 = Color3.fromRGB(0, 255, 150)
+        box.BorderColor3 = Color3.fromRGB(0, 255, 150)
+        task.wait(0.8)
+        authSg:Destroy()
+        LaunchUniversalVehicleScript()
+    else
+        box.Text = "ОТКЛОНЕНО: НЕВЕРНЫЙ КЛЮЧ"
         box.BorderColor3 = Color3.fromRGB(255, 0, 0)
-        return
+        task.wait(2)
+        box.Text = ""
+        box.PlaceholderText = "ВСТАВЬТЕ КЛЮЧ И НАЖМИТЕ ENTER"
+        box.BorderColor3 = Color3.fromRGB(138, 43, 226)
     end
-
-    task.spawn(function()
-        -- ШАГ 1: INIT
-        local successInit, initResponse = pcall(function()
-            return requestFunc({
-                Url = "https://keyauth.win/api/1.3/",
-                Method = "POST",
-                Headers = {
-                    ["Content-Type"] = "application/x-www-form-urlencoded",
-                    ["User-Agent"] = "Mozilla/5.0"
-                },
-                Body = "type=init&name=" .. KeyAuthApp.Name .. "&ownerid=" .. KeyAuthApp.OwnerId .. "&secret=" .. KeyAuthApp.Secret .. "&version=" .. KeyAuthApp.Version
-            })
-        end)
-
-        if successInit and initResponse and initResponse.Body then
-            local responseBody = tostring(initResponse.Body)
-            local isInitSuccess = customParseField(responseBody, "success")
-            
-            if isInitSuccess == "true" then
-                local sessionId = customParseField(responseBody, "sessionid")
-                
-                if sessionId and sessionId ~= "" then
-                    box.Text = "ПРОВЕРКА КЛЮЧА..."
-                    
-                    -- ШАГ 2: LICENSE
-                    local successLicense, licenseResponse = pcall(function()
-                        return requestFunc({
-                            Url = "https://keyauth.win/api/1.3/",
-                            Method = "POST",
-                            Headers = {
-                                ["Content-Type"] = "application/x-www-form-urlencoded",
-                                ["User-Agent"] = "Mozilla/5.0"
-                            },
-                            Body = "type=license&key=" .. enteredKey .. "&sessionid=" .. sessionId .. "&name=" .. KeyAuthApp.Name .. "&ownerid=" .. KeyAuthApp.OwnerId .. "&secret=" .. KeyAuthApp.Secret .. "&version=" .. KeyAuthApp.Version .. "&hwid=" .. fakeHwid
-                        })
-                    end)
-
-                    if successLicense and licenseResponse and licenseResponse.Body then
-                        local licenseBody = tostring(licenseResponse.Body)
-                        local isLicenseSuccess = customParseField(licenseBody, "success")
-                        
-                        if isLicenseSuccess == "true" then
-                            box.Text = "УСПЕШНО!"
-                            box.TextColor3 = Color3.fromRGB(0, 255, 150)
-                            box.BorderColor3 = Color3.fromRGB(0, 255, 150)
-                            task.wait(0.8)
-                            authSg:Destroy()
-                            
-                            -- ЗАПУСК ЧИТА
-                            LaunchUniversalVehicleScript()
-                        else
-                            local errorMsg = customParseField(licenseBody, "message") or "НЕВЕРНЫЙ КЛЮЧ"
-                            box.Text = "ОТКЛОНЕНО: " .. string.upper(tostring(errorMsg))
-                            box.BorderColor3 = Color3.fromRGB(255, 0, 0)
-                        end
-                    else
-                        box.Text = "ОШИБКА ОТВЕТА ЛИЦЕНЗИИ"
-                        box.BorderColor3 = Color3.fromRGB(255, 0, 0)
-                    end
-                else
-                    box.Text = "ОШИБКА СЕССИИ"
-                    box.BorderColor3 = Color3.fromRGB(255, 0, 0)
-                end
-            else
-                local initError = customParseField(responseBody, "message") or "ДАННЫЕ ПАНЕЛИ НЕВЕРНЫ"
-                box.Text = "ОТКЛОНЕНО: " .. string.upper(tostring(initError))
-                box.BorderColor3 = Color3.fromRGB(255, 0, 0)
-            end
-        else
-            box.Text = "СЕТЬ ЗАКРЫТА (ТАЙМАУТ)"
-            box.BorderColor3 = Color3.fromRGB(255, 0, 0)
-            task.wait(3)
-            box.Text = ""
-            box.PlaceholderText = "ВСТАВЬТЕ КЛЮЧ И НАЖМИТЕ ENTER"
-            box.BorderColor3 = Color3.fromRGB(138, 43, 226)
-        end
-    end)
 end)
