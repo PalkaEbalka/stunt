@@ -1,15 +1,7 @@
 -- ====================================================================
--- ЛОКАЛЬНАЯ СИСТЕМА КЛЮЧЕЙ (РЕДАКТИРУЙ ЗДЕСЬ)
+-- НАСТРОЙКИ: ССЫЛКА НА ФАЙЛ С КЛЮЧАМИ
 -- ====================================================================
--- Добавляй ключи в этот список. Формат: ["ключ"] = true,
--- Чтобы удалить ключ — просто удали строку с ним или поставь false.
-local VALID_KEYS = {
-    ["STUNT-2024-AAA"] = true,
-    ["STUNT-2024-BBB"] = true,
-    ["STUNT-2024-CCC"] = true,
-    ["PREMIUM-KEY-001"] = true,
-    ["TEST-KEY-12345"]  = true,
-}
+local KEYS_URL = "https://raw.githubusercontent.com/PalkaEbalka/stunt/refs/heads/main/keys.txt"
 
 -- ====================================================================
 -- БАЗОВЫЕ СЕРВИСЫ
@@ -109,6 +101,39 @@ local function LaunchUniversalVehicleScript()
 end
 
 -- ====================================================================
+-- ЗАГРУЗКА И ПРОВЕРКА КЛЮЧЕЙ С ПРИВЯЗКОЙ К USERID
+-- ====================================================================
+local function loadAndVerifyKey(enteredKey)
+    local success, result = pcall(function()
+        return game:HttpGet(KEYS_URL, true)
+    end)
+
+    if not success or not result or #result == 0 then
+        return false, "Не удалось загрузить список ключей"
+    end
+
+    local myUserId = tostring(localPlayer.UserId)
+
+    for line in result:gmatch("[^\r\n]+") do
+        local trimmed = line:gsub("^%s+", ""):gsub("%s+$", "")
+        if trimmed ~= "" and not trimmed:match("^#") then
+            -- Разбираем строку: КЛЮЧ:USERID
+            local key, userId = trimmed:match("^([^:]+):([^:]+)$")
+
+            if key and userId then
+                -- Проверяем, совпадает ли ключ и UserId
+                if key == enteredKey and userId == myUserId then
+                    return true, "OK"
+                end
+            end
+        end
+    end
+
+    -- Если ничего не нашли
+    return false, "НЕВЕРНЫЙ КЛЮЧ ИЛИ USER ID"
+end
+
+-- ====================================================================
 -- UI ДЛЯ ВВОДА КЛЮЧА
 -- ====================================================================
 local authSg = Instance.new("ScreenGui")
@@ -133,7 +158,7 @@ box.Parent = authSg
 local UICorner = Instance.new("UICorner", box)
 UICorner.CornerRadius = UDim.new(0, 6)
 
--- Логика проверки (полностью локальная, без интернета)
+-- Логика проверки ключа
 box.FocusLost:Connect(function(enterPressed)
     if not enterPressed then return end
 
@@ -150,19 +175,23 @@ box.FocusLost:Connect(function(enterPressed)
     box.BorderColor3 = Color3.fromRGB(186, 124, 255)
     task.wait(0.3)
 
-    if VALID_KEYS[enteredKey] == true then
-        box.Text = "УСПЕШНО!"
-        box.TextColor3 = Color3.fromRGB(0, 255, 150)
-        box.BorderColor3 = Color3.fromRGB(0, 255, 150)
-        task.wait(0.8)
-        authSg:Destroy()
-        LaunchUniversalVehicleScript()
-    else
-        box.Text = "ОТКЛОНЕНО: НЕВЕРНЫЙ КЛЮЧ"
-        box.BorderColor3 = Color3.fromRGB(255, 0, 0)
-        task.wait(2)
-        box.Text = ""
-        box.PlaceholderText = "ВСТАВЬТЕ КЛЮЧ И НАЖМИТЕ ENTER"
-        box.BorderColor3 = Color3.fromRGB(138, 43, 226)
-    end
+    task.spawn(function()
+        local isValid, message = loadAndVerifyKey(enteredKey)
+
+        if isValid then
+            box.Text = "УСПЕШНО!"
+            box.TextColor3 = Color3.fromRGB(0, 255, 150)
+            box.BorderColor3 = Color3.fromRGB(0, 255, 150)
+            task.wait(0.8)
+            authSg:Destroy()
+            LaunchUniversalVehicleScript()
+        else
+            box.Text = "ОТКЛОНЕНО: " .. string.upper(tostring(message))
+            box.BorderColor3 = Color3.fromRGB(255, 0, 0)
+            task.wait(2.5)
+            box.Text = ""
+            box.PlaceholderText = "ВСТАВЬТЕ КЛЮЧ И НАЖМИТЕ ENTER"
+            box.BorderColor3 = Color3.fromRGB(138, 43, 226)
+        end
+    end)
 end)
